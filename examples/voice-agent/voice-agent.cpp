@@ -34,6 +34,7 @@
 
 
 
+#if defined(_WIN32)
 void WindowsKeyPress(std::string key) {
     static std::map<std::string, WORD> keyMap = {
         {"mute", VK_VOLUME_MUTE},
@@ -62,7 +63,9 @@ void WindowsKeyPress(std::string key) {
 
     SendInput(2, inputs, sizeof(INPUT));
 }
+#endif
 
+#if defined(__linux__)
 void LinuxKeyPress(std::string key) {
     static std::map<std::string, std::string> keyMap = {
         {"mute", "XF86AudioMute"},
@@ -74,6 +77,7 @@ void LinuxKeyPress(std::string key) {
     };
     system(("xdotool key " + key).c_str());
 }
+#endif
 
 // Function to simulate a key press
 void simulateKeyPress(std::string key) {
