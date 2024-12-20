@@ -75,7 +75,8 @@ void LinuxKeyPress(std::string key) {
         {"next", "XF86AudioNext"},
         {"previous", "XF86AudioPrev"},
     };
-    system(("xdotool key " + key).c_str());
+    auto command = ("xdotool key " + keyMap[key]);
+    system(command.c_str());
 }
 #endif
 
