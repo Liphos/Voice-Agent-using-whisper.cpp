@@ -1,0 +1,7 @@
+play
+next
+previous
+more
+less
+mute
+exit
