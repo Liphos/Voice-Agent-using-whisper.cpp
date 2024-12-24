@@ -35,14 +35,14 @@
 
 
 #if defined(_WIN32)
-void WindowsKeyPress(std::string key) {
-    static std::map<std::string, WORD> keyMap = {
-        {"mute", VK_VOLUME_MUTE},
-        {"less", VK_VOLUME_DOWN},
-        {"more", VK_VOLUME_UP},
-        {"play", VK_MEDIA_PLAY_PAUSE},
-        {"next", VK_MEDIA_NEXT_TRACK},
-        {"previous", VK_MEDIA_PREV_TRACK},
+void WindowsKeyPress(int key_index) {
+    static std::vector<WORD> keyMap = {
+        {VK_MEDIA_PLAY_PAUSE},
+        {VK_MEDIA_NEXT_TRACK},
+        {VK_MEDIA_PREV_TRACK},
+        {VK_VOLUME_UP},
+        {VK_VOLUME_DOWN},
+        {VK_VOLUME_MUTE},
     };
     INPUT inputs[2] = {};
     ZeroMemory(inputs, sizeof(inputs));
@@ -51,14 +51,14 @@ void WindowsKeyPress(std::string key) {
     inputs[0].ki.wScan = 0;
     inputs[0].ki.time = 0;
     inputs[0].ki.dwExtraInfo = 0;
-    inputs[0].ki.wVk = keyMap[key];
+    inputs[0].ki.wVk = keyMap[key_index];
     inputs[0].ki.dwFlags = 0;
 
     inputs[1].type = INPUT_KEYBOARD;
     inputs[1].ki.wScan = 0;
     inputs[1].ki.time = 0;
     inputs[1].ki.dwExtraInfo = 0;
-    inputs[1].ki.wVk = keyMap[key];
+    inputs[1].ki.wVk = keyMap[key_index];
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP; 
 
     SendInput(2, inputs, sizeof(INPUT));
@@ -67,13 +67,13 @@ void WindowsKeyPress(std::string key) {
 
 #if defined(__linux__)
 void LinuxKeyPress(std::string key) {
-    static std::map<std::string, std::string> keyMap = {
-        {"mute", "XF86AudioMute"},
-        {"less", "XF86AudioLowerVolume" },
-        {"more", "XF86AudioRaiseVolume" },
-        {"play", "XF86AudioPlay"},
-        {"next", "XF86AudioNext"},
-        {"previous", "XF86AudioPrev"},
+    static std::vector<std::string> keyMap = {
+        {"XF86AudioPlay"},
+        {"XF86AudioNext"},
+        {"XF86AudioPrev"},
+        {"XF86AudioRaiseVolume" },
+        {"XF86AudioLowerVolume" },
+        {"XF86AudioMute"},
     };
     auto command = ("xdotool key " + keyMap[key]);
     system(command.c_str());
@@ -81,11 +81,11 @@ void LinuxKeyPress(std::string key) {
 #endif
 
 // Function to simulate a key press
-void simulateKeyPress(std::string key) {
+void simulateKeyPress(int index) {
     #if defined(_WIN32)
-        WindowsKeyPress(key);
+        WindowsKeyPress(index);
     #elif defined(__linux__)
-        LinuxKeyPress(key);
+        LinuxKeyPress(index);
     #else
         std:: cout << "OS not supported" << std::endl;
     #endif
@@ -523,15 +523,18 @@ static int process_command_list(struct whisper_context * ctx, audio_async &audio
                             "\033[1m", allowed_commands[index].c_str(), "\033[0m", prob,
                             (int) std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
                     fprintf(stdout, "\n");
+                    // Trigger media input key with index
+                    // 0: play, 1: next, 2: prev, 3: volume up, 4: volume down, 5: mute, 6: exit
+
                     if (prob >= params.cmd_thold) //Only act if confident enough
                     {
-                        if (allowed_commands[index] == "exit")
+                        if (index == allowed_commands.size() - 1) //Exit key
                         {
                             return 0;
                         }
                         else 
                         {
-                            simulateKeyPress(allowed_commands[index]);
+                            simulateKeyPress(index);
                         }
                     }
 
