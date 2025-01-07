@@ -1,14 +1,14 @@
-# Voice Agent
+# whisper.cpp/examples/Voice Agent
 This is an example of use of the command functionality of whisper.cpp to allow control of the multimedia of your computer using your voice.
 This program should only works on Linux and Windows for now. It was tested on Windows 10 and Ubuntu 22.04.
 ## Run
 To run the program, execute the following commands:
 ```bash
 # Run with default arguments and small model on Linux
-./build/bin/voice-agent -m ./models/ggml-base.en.bin -cmd ./examples/voice-agent/commands.txt -ac 768 -t 3 -c 1
+./build/bin/whisper-voice-agent -m ./models/ggml-base.en.bin -cmd ./examples/voice-agent/commands.txt -ac 768 -t 3 -c 1
 
 # Run with default arguments and small model on Windows
-.\build\bin\Release\voice-agent.exe -m ./models/ggml-base.en.bin -cmd ./examples/voice-agent/commands.txt -ac 768 -t 3 -c 1
+.\build\bin\Release\whisper-voice-agent.exe -m ./models/ggml-base.en.bin -cmd ./examples/voice-agent/commands.txt -ac 768 -t 3 -c 1
 ```
 
 To control the multimedia, you then just need to say one of the following words: play, next, previous, more, less, mute, exit. Each word has a different function:
