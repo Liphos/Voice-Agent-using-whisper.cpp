@@ -43,6 +43,7 @@ struct whisper_params {
     float word_thold      =  0.01f;
     float entropy_thold   =  2.40f;
     float logprob_thold   = -1.00f;
+    float no_speech_thold =  0.6f;
     float grammar_penalty = 100.0f;
     float temperature     = 0.0f;
     float temperature_inc = 0.2f;
@@ -70,6 +71,7 @@ struct whisper_params {
     bool log_score       = false;
     bool use_gpu         = true;
     bool flash_attn      = false;
+    bool suppress_nst    = false;
 
     std::string language  = "en";
     std::string prompt;
@@ -104,6 +106,11 @@ static char * whisper_param_turn_lowercase(char * in){
     return in;
 }
 
+static char * requires_value_error(const std::string & arg) {
+    fprintf(stderr, "error: argument %s requires value\n", arg.c_str());
+    exit(0);
+}
+
 static bool whisper_params_parse(int argc, char ** argv, whisper_params & params) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -122,21 +129,23 @@ static bool whisper_params_parse(int argc, char ** argv, whisper_params & params
             whisper_print_usage(argc, argv, params);
             exit(0);
         }
-        else if (arg == "-t"    || arg == "--threads")         { params.n_threads       = std::stoi(argv[++i]); }
-        else if (arg == "-p"    || arg == "--processors")      { params.n_processors    = std::stoi(argv[++i]); }
-        else if (arg == "-ot"   || arg == "--offset-t")        { params.offset_t_ms     = std::stoi(argv[++i]); }
-        else if (arg == "-on"   || arg == "--offset-n")        { params.offset_n        = std::stoi(argv[++i]); }
-        else if (arg == "-d"    || arg == "--duration")        { params.duration_ms     = std::stoi(argv[++i]); }
-        else if (arg == "-mc"   || arg == "--max-context")     { params.max_context     = std::stoi(argv[++i]); }
-        else if (arg == "-ml"   || arg == "--max-len")         { params.max_len         = std::stoi(argv[++i]); }
-        else if (arg == "-bo"   || arg == "--best-of")         { params.best_of         = std::stoi(argv[++i]); }
-        else if (arg == "-bs"   || arg == "--beam-size")       { params.beam_size       = std::stoi(argv[++i]); }
-        else if (arg == "-ac"   || arg == "--audio-ctx")       { params.audio_ctx       = std::stoi(argv[++i]); }
-        else if (arg == "-wt"   || arg == "--word-thold")      { params.word_thold      = std::stof(argv[++i]); }
-        else if (arg == "-et"   || arg == "--entropy-thold")   { params.entropy_thold   = std::stof(argv[++i]); }
-        else if (arg == "-lpt"  || arg == "--logprob-thold")   { params.logprob_thold   = std::stof(argv[++i]); }
-        else if (arg == "-tp"   || arg == "--temperature")     { params.temperature     = std::stof(argv[++i]); }
-        else if (arg == "-tpi"  || arg == "--temperature-inc") { params.temperature_inc = std::stof(argv[++i]); }
+        #define ARGV_NEXT (((i + 1) < argc) ? argv[++i] : requires_value_error(arg))
+        else if (arg == "-t"    || arg == "--threads")         { params.n_threads       = std::stoi(ARGV_NEXT); }
+        else if (arg == "-p"    || arg == "--processors")      { params.n_processors    = std::stoi(ARGV_NEXT); }
+        else if (arg == "-ot"   || arg == "--offset-t")        { params.offset_t_ms     = std::stoi(ARGV_NEXT); }
+        else if (arg == "-on"   || arg == "--offset-n")        { params.offset_n        = std::stoi(ARGV_NEXT); }
+        else if (arg == "-d"    || arg == "--duration")        { params.duration_ms     = std::stoi(ARGV_NEXT); }
+        else if (arg == "-mc"   || arg == "--max-context")     { params.max_context     = std::stoi(ARGV_NEXT); }
+        else if (arg == "-ml"   || arg == "--max-len")         { params.max_len         = std::stoi(ARGV_NEXT); }
+        else if (arg == "-bo"   || arg == "--best-of")         { params.best_of         = std::stoi(ARGV_NEXT); }
+        else if (arg == "-bs"   || arg == "--beam-size")       { params.beam_size       = std::stoi(ARGV_NEXT); }
+        else if (arg == "-ac"   || arg == "--audio-ctx")       { params.audio_ctx       = std::stoi(ARGV_NEXT); }
+        else if (arg == "-wt"   || arg == "--word-thold")      { params.word_thold      = std::stof(ARGV_NEXT); }
+        else if (arg == "-et"   || arg == "--entropy-thold")   { params.entropy_thold   = std::stof(ARGV_NEXT); }
+        else if (arg == "-lpt"  || arg == "--logprob-thold")   { params.logprob_thold   = std::stof(ARGV_NEXT); }
+        else if (arg == "-nth"  || arg == "--no-speech-thold") { params.no_speech_thold = std::stof(ARGV_NEXT); }
+        else if (arg == "-tp"   || arg == "--temperature")     { params.temperature     = std::stof(ARGV_NEXT); }
+        else if (arg == "-tpi"  || arg == "--temperature-inc") { params.temperature_inc = std::stof(ARGV_NEXT); }
         else if (arg == "-debug"|| arg == "--debug-mode")      { params.debug_mode      = true; }
         else if (arg == "-tr"   || arg == "--translate")       { params.translate       = true; }
         else if (arg == "-di"   || arg == "--diarize")         { params.diarize         = true; }
@@ -148,30 +157,31 @@ static bool whisper_params_parse(int argc, char ** argv, whisper_params & params
         else if (arg == "-osrt" || arg == "--output-srt")      { params.output_srt      = true; }
         else if (arg == "-owts" || arg == "--output-words")    { params.output_wts      = true; }
         else if (arg == "-olrc" || arg == "--output-lrc")      { params.output_lrc      = true; }
-        else if (arg == "-fp"   || arg == "--font-path")       { params.font_path       = argv[++i]; }
+        else if (arg == "-fp"   || arg == "--font-path")       { params.font_path       = ARGV_NEXT; }
         else if (arg == "-ocsv" || arg == "--output-csv")      { params.output_csv      = true; }
         else if (arg == "-oj"   || arg == "--output-json")     { params.output_jsn      = true; }
         else if (arg == "-ojf"  || arg == "--output-json-full"){ params.output_jsn_full = params.output_jsn = true; }
-        else if (arg == "-of"   || arg == "--output-file")     { params.fname_out.emplace_back(argv[++i]); }
+        else if (arg == "-of"   || arg == "--output-file")     { params.fname_out.emplace_back(ARGV_NEXT); }
         else if (arg == "-np"   || arg == "--no-prints")       { params.no_prints       = true; }
         else if (arg == "-ps"   || arg == "--print-special")   { params.print_special   = true; }
         else if (arg == "-pc"   || arg == "--print-colors")    { params.print_colors    = true; }
         else if (arg == "-pp"   || arg == "--print-progress")  { params.print_progress  = true; }
         else if (arg == "-nt"   || arg == "--no-timestamps")   { params.no_timestamps   = true; }
-        else if (arg == "-l"    || arg == "--language")        { params.language        = whisper_param_turn_lowercase(argv[++i]); }
+        else if (arg == "-l"    || arg == "--language")        { params.language        = whisper_param_turn_lowercase(ARGV_NEXT); }
         else if (arg == "-dl"   || arg == "--detect-language") { params.detect_language = true; }
-        else if (                  arg == "--prompt")          { params.prompt          = argv[++i]; }
-        else if (arg == "-m"    || arg == "--model")           { params.model           = argv[++i]; }
-        else if (arg == "-f"    || arg == "--file")            { params.fname_inp.emplace_back(argv[++i]); }
-        else if (arg == "-oved" || arg == "--ov-e-device")     { params.openvino_encode_device = argv[++i]; }
-        else if (arg == "-dtw"  || arg == "--dtw")             { params.dtw             = argv[++i]; }
+        else if (                  arg == "--prompt")          { params.prompt          = ARGV_NEXT; }
+        else if (arg == "-m"    || arg == "--model")           { params.model           = ARGV_NEXT; }
+        else if (arg == "-f"    || arg == "--file")            { params.fname_inp.emplace_back(ARGV_NEXT); }
+        else if (arg == "-oved" || arg == "--ov-e-device")     { params.openvino_encode_device = ARGV_NEXT; }
+        else if (arg == "-dtw"  || arg == "--dtw")             { params.dtw             = ARGV_NEXT; }
         else if (arg == "-ls"   || arg == "--log-score")       { params.log_score       = true; }
         else if (arg == "-ng"   || arg == "--no-gpu")          { params.use_gpu         = false; }
         else if (arg == "-fa"   || arg == "--flash-attn")      { params.flash_attn      = true; }
-        else if (                  arg == "--suppress-regex")  { params.suppress_regex  = argv[++i]; }
-        else if (                  arg == "--grammar")         { params.grammar         = argv[++i]; }
-        else if (                  arg == "--grammar-rule")    { params.grammar_rule    = argv[++i]; }
-        else if (                  arg == "--grammar-penalty") { params.grammar_penalty = std::stof(argv[++i]); }
+        else if (arg == "-sns"  || arg == "--suppress-nst")    { params.suppress_nst    = true; }
+        else if (                  arg == "--suppress-regex")  { params.suppress_regex  = ARGV_NEXT; }
+        else if (                  arg == "--grammar")         { params.grammar         = ARGV_NEXT; }
+        else if (                  arg == "--grammar-rule")    { params.grammar_rule    = ARGV_NEXT; }
+        else if (                  arg == "--grammar-penalty") { params.grammar_penalty = std::stof(ARGV_NEXT); }
         else {
             fprintf(stderr, "error: unknown argument: %s\n", arg.c_str());
             whisper_print_usage(argc, argv, params);
@@ -202,6 +212,7 @@ static void whisper_print_usage(int /*argc*/, char ** argv, const whisper_params
     fprintf(stderr, "  -wt N,     --word-thold N      [%-7.2f] word timestamp probability threshold\n",         params.word_thold);
     fprintf(stderr, "  -et N,     --entropy-thold N   [%-7.2f] entropy threshold for decoder fail\n",           params.entropy_thold);
     fprintf(stderr, "  -lpt N,    --logprob-thold N   [%-7.2f] log probability threshold for decoder fail\n",   params.logprob_thold);
+    fprintf(stderr, "  -nth N,    --no-speech-thold N [%-7.2f] no speech threshold\n",                          params.no_speech_thold);
     fprintf(stderr, "  -tp,       --temperature N     [%-7.2f] The sampling temperature, between 0 and 1\n",    params.temperature);
     fprintf(stderr, "  -tpi,      --temperature-inc N [%-7.2f] The increment of temperature, between 0 and 1\n",params.temperature_inc);
     fprintf(stderr, "  -debug,    --debug-mode        [%-7s] enable debug mode (eg. dump log_mel)\n",           params.debug_mode ? "true" : "false");
@@ -234,6 +245,7 @@ static void whisper_print_usage(int /*argc*/, char ** argv, const whisper_params
     fprintf(stderr, "  -ls,       --log-score         [%-7s] log best decoder scores of tokens\n",              params.log_score?"true":"false");
     fprintf(stderr, "  -ng,       --no-gpu            [%-7s] disable GPU\n",                                    params.use_gpu ? "false" : "true");
     fprintf(stderr, "  -fa,       --flash-attn        [%-7s] flash attention\n",                                params.flash_attn ? "true" : "false");
+    fprintf(stderr, "  -sns,      --suppress-nst      [%-7s] suppress non-speech tokens\n",                     params.suppress_nst ? "true" : "false");
     fprintf(stderr, "  --suppress-regex REGEX         [%-7s] regular expression matching tokens to suppress\n", params.suppress_regex.c_str());
     fprintf(stderr, "  --grammar GRAMMAR              [%-7s] GBNF grammar to guide decoding\n",                 params.grammar.c_str());
     fprintf(stderr, "  --grammar-rule RULE            [%-7s] top-level GBNF grammar rule name\n",               params.grammar_rule.c_str());
@@ -1121,8 +1133,11 @@ int main(int argc, char ** argv) {
 
             wparams.entropy_thold    = params.entropy_thold;
             wparams.logprob_thold    = params.logprob_thold;
+            wparams.no_speech_thold  = params.no_speech_thold;
 
             wparams.no_timestamps    = params.no_timestamps;
+
+            wparams.suppress_nst     = params.suppress_nst;
 
             whisper_print_user_data user_data = { &params, &pcmf32s, 0 };
 
