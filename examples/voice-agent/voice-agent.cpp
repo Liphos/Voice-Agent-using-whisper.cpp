@@ -2,7 +2,8 @@
 //
 // This program triggers media keys based on voice commands.
 //
-// It is based on the command example. More info can be found here [issue #171](https://github.com/ggerganov/whisper.cpp/issues/171).
+// ref: https://github.com/ggml-org/whisper.cpp/issues/171
+//
 
 #include "common-sdl.h"
 #include "common.h"
@@ -20,17 +21,15 @@
     #endif
 #endif
 
-#include <sstream>
-#include <cassert>
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
-#include <mutex>
-#include <regex>
+#include <map>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
-#include <map>
-#include <iostream>
 
 
 
@@ -113,7 +112,7 @@ struct whisper_params {
     bool print_energy  = false;
     bool no_timestamps = true;
     bool use_gpu       = true;
-    bool flash_attn    = false;
+    bool flash_attn    = true;
 
     std::string language  = "en";
     std::string model     = "models/ggml-base.en.bin";
@@ -150,7 +149,7 @@ static bool whisper_params_parse(int argc, char ** argv, whisper_params & params
         else if (arg == "-ps"  || arg == "--print-special") { params.print_special = true; }
         else if (arg == "-pe"  || arg == "--print-energy")  { params.print_energy  = true; }
         else if (arg == "-ng"  || arg == "--no-gpu")        { params.use_gpu       = false; }
-        else if (arg == "-fa"  || arg == "--flash-attn")    { params.flash_attn    = true; }
+        else if (arg == "-nfa" || arg == "--no-flash-attn") { params.flash_attn    = false; }
         else if (arg == "-l"   || arg == "--language")      { params.language      = argv[++i]; }
         else if (arg == "-m"   || arg == "--model")         { params.model         = argv[++i]; }
         else if (arg == "-f"   || arg == "--file")          { params.fname_out     = argv[++i]; }
@@ -189,7 +188,8 @@ void whisper_print_usage(int /*argc*/, char ** argv, const whisper_params & para
     fprintf(stderr, "  -ps,        --print-special  [%-7s] print special tokens\n",                        params.print_special ? "true" : "false");
     fprintf(stderr, "  -pe,        --print-energy   [%-7s] print sound energy (for debugging)\n",          params.print_energy ? "true" : "false");
     fprintf(stderr, "  -ng,        --no-gpu         [%-7s] disable GPU\n",                                 params.use_gpu ? "false" : "true");
-    fprintf(stderr, "  -fa,        --flash-attn     [%-7s] flash attention\n",                             params.flash_attn ? "true" : "false");
+    fprintf(stderr, "  -fa,        --flash-attn     [%-7s] enable flash attention\n",                             params.flash_attn ? "true" : "false");
+    fprintf(stderr, "  -nfa,       --no-flash-attn  [%-7s] disable flash attention\n",                     params.flash_attn ? "false" : "true");
     fprintf(stderr, "  -l LANG,    --language LANG  [%-7s] spoken language\n",                             params.language.c_str());
     fprintf(stderr, "  -m FNAME,   --model FNAME    [%-7s] model path\n",                                  params.model.c_str());
     fprintf(stderr, "  -f FNAME,   --file FNAME     [%-7s] text output file name\n",                       params.fname_out.c_str());
@@ -324,7 +324,7 @@ static std::vector<std::string> get_words(const std::string &txt) {
 
 // command-list mode
 // guide the transcription to match the most likely command from a provided list
-static int process_command_list(struct whisper_context * ctx, audio_async &audio, const whisper_params &params) {
+static int process_command_list(struct whisper_context * ctx, audio_async &audio, const whisper_params &params, std::ofstream &fout) {
     fprintf(stderr, "\n");
     fprintf(stderr, "%s: guided mode\n", __func__);
 
@@ -523,6 +523,9 @@ static int process_command_list(struct whisper_context * ctx, audio_async &audio
                             "\033[1m", allowed_commands[index].c_str(), "\033[0m", prob,
                             (int) std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
                     fprintf(stdout, "\n");
+                    if (fout.is_open()) {
+                        fout << allowed_commands[index].c_str() << std::endl;
+                    }
                     // Trigger media input key with index
                     // 0: play, 1: next, 2: prev, 3: volume up, 4: volume down, 5: mute, 6: exit
 
@@ -550,7 +553,7 @@ static int process_command_list(struct whisper_context * ctx, audio_async &audio
 
 // always-prompt mode
 // transcribe the voice into text after valid prompt
-static int always_prompt_transcription(struct whisper_context * ctx, audio_async & audio, const whisper_params & params) {
+static int always_prompt_transcription(struct whisper_context * ctx, audio_async & audio, const whisper_params & params, std::ofstream &fout) {
     bool is_running = true;
     bool ask_prompt = true;
 
@@ -617,6 +620,9 @@ static int always_prompt_transcription(struct whisper_context * ctx, audio_async
                 if ((sim > 0.7f) && (command.size() > 0)) {
                     fprintf(stdout, "%s: Command '%s%s%s', (t = %d ms)\n", __func__, "\033[1m", command.c_str(), "\033[0m", (int) t_ms);
                 }
+                if (fout.is_open()) {
+                    fout << command << std::endl;
+                }
 
                 fprintf(stdout, "\n");
 
@@ -630,7 +636,7 @@ static int always_prompt_transcription(struct whisper_context * ctx, audio_async
 
 // general-purpose mode
 // freely transcribe the voice into text
-static int process_general_transcription(struct whisper_context * ctx, audio_async & audio, const whisper_params & params) {
+static int process_general_transcription(struct whisper_context * ctx, audio_async & audio, const whisper_params & params, std::ofstream &fout) {
     bool is_running  = true;
     bool have_prompt = false;
     bool ask_prompt  = true;
@@ -752,6 +758,9 @@ static int process_general_transcription(struct whisper_context * ctx, audio_asy
                         const std::string command = ::trim(txt.substr(best_len));
 
                         fprintf(stdout, "%s: Command '%s%s%s', (t = %d ms)\n", __func__, "\033[1m", command.c_str(), "\033[0m", (int) t_ms);
+                        if (fout.is_open()) {
+                            fout << command << std::endl;
+                        }
                     }
 
                     fprintf(stdout, "\n");
@@ -766,6 +775,8 @@ static int process_general_transcription(struct whisper_context * ctx, audio_asy
 }
 
 int main(int argc, char ** argv) {
+    ggml_backend_load_all();
+
     whisper_params params;
 
     if (whisper_params_parse(argc, argv, params) == false) {
@@ -786,7 +797,10 @@ int main(int argc, char ** argv) {
     cparams.flash_attn = params.flash_attn;
 
     struct whisper_context * ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
-
+    if (ctx == nullptr) {
+        fprintf(stderr, "error: failed to initialize whisper context\n");
+        return 2;
+    }
     // print some info about the processing
     {
         fprintf(stderr, "\n");
@@ -845,13 +859,22 @@ int main(int argc, char ** argv) {
         }
     }
 
+    std::ofstream fout;
+    if (params.fname_out.length() > 0) {
+        fout.open(params.fname_out);
+        if (!fout.is_open()) {
+            fprintf(stderr, "%s: failed to open output file '%s'!\n", __func__, params.fname_out.c_str());
+            return 1;
+        }
+    }
+
     if (ret_val == 0) {
         if (!params.commands.empty()) {
-            ret_val = process_command_list(ctx, audio, params);
+            ret_val = process_command_list(ctx, audio, params, fout);
         } else if (!params.prompt.empty() && params.grammar_parsed.rules.empty()) {
-            ret_val = always_prompt_transcription(ctx, audio, params);
+            ret_val = always_prompt_transcription(ctx, audio, params, fout);
         } else {
-            ret_val = process_general_transcription(ctx, audio, params);
+            ret_val = process_general_transcription(ctx, audio, params, fout);
         }
     }
 

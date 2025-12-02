@@ -1,0 +1,1 @@
+.\build\bin\Release\whisper-voice-agent.exe -m ./models/ggml-base.en.bin -cmd ./examples/voice-agent/commands.txt -ac 768 -t 3 -c 1
